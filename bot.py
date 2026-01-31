@@ -1,60 +1,51 @@
-import os
 import logging
-import requests
-from flask import Flask, request
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Update
 import asyncio
+import os
+import requests
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiohttp import web
 
-# Настройки
-API_TOKEN = os.getenv("BOT_TOKEN")
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")  # https://python-bot-8xou.onrender.com
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-WEBHOOK_URL = f"{RENDER_URL}{WEBHOOK_PATH}"
-PORT = int(os.environ.get("PORT", 8080))
-
+# Беремо токен з налаштувань Render
+API_TOKEN = os.getenv('BOT_TOKEN')
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
-app = Flask(__name__)
+dp = Dispatcher()
 
-# --- Выполнение кода через Piston ---
 def run_piston_code(code):
+    url = "https://emkc.org/api/v2/piston/execute"
+    payload = {"language": "python", "version": "3.10.0", "files": [{"content": code}]}
     try:
-        r = requests.post(
-            "https://emkc.org/api/v2/piston/execute",
-            json={"language": "python", "version": "3.10.0", "files": [{"content": code}]},
-            timeout=10
-        )
-        return r.json().get("run", {}).get("output", "Помилка виконання")
-    except Exception as e:
-        return f"Помилка API: {e}"
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json().get('run', {}).get('output', 'Помилка виконання')
+    except:
+        return "Помилка зв'язку з сервером коду."
 
-# --- Обработчик команды /py ---
-@dp.message_handler(commands=["py"])
+@dp.message(Command("py"))
 async def execute_py(message: types.Message):
-    code = message.get_args()
+    # Витягуємо код після команди /py
+    code = message.text[4:].strip() 
     if not code:
-        await message.reply("Напиши код после /py, например: `/py print(2+2)`")
+        await message.reply("Напиши код, наприклад: /py print(123)")
         return
-    result = run_piston_code(code)
-    await message.answer(f"```python\n{result}\n```", parse_mode="Markdown")
+    res = run_piston_code(code)
+    await message.answer(f"🐍 **Результат:**\n```python\n{res}\n```", parse_mode="Markdown")
 
-# --- Мини-сервер для Render ---
-@app.route("/", methods=["GET"])
-def index():
-    return "OK"
+# Функція "анти-вимкнення" для Render
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", lambda r: web.Response(text="Бот живий!"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
 
-@app.route(WEBHOOK_PATH, methods=["POST"])
-def webhook():
-    update = Update(**request.json)
-    asyncio.create_task(dp.process_update(update))
-    return "OK"
+async def main():
+    # Запускаємо веб-сервер фоном, щоб Render не закрив сервіс
+    asyncio.create_task(start_web_server())
+    await dp.start_polling(bot)
 
-# --- Старт ---
-if __name__ == "__main__":
-    # Регистрация webhook
-    asyncio.get_event_loop().run_until_complete(bot.set_webhook(WEBHOOK_URL))
-    # Flask реально открывает порт для Render
-    app.run(host="0.0.0.0", port=PORT)
+if __name__ == '__main__':
+    asyncio.run(main())
