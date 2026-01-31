@@ -16,7 +16,6 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 app = Flask(__name__)
 
-
 def run_piston_code(code):
     try:
         r = requests.post(
@@ -28,7 +27,6 @@ def run_piston_code(code):
     except:
         return "Помилка з'єднання з сервером."
 
-
 @dp.message_handler(commands=["py"])
 async def execute_py(message: types.Message):
     code = message.get_args()
@@ -38,11 +36,9 @@ async def execute_py(message: types.Message):
     result = run_piston_code(code)
     await message.answer(f"```python\n{result}\n```", parse_mode="Markdown")
 
-
 @app.route("/", methods=["GET"])
 def index():
     return "OK"
-
 
 @app.route(f"/webhook/{API_TOKEN}", methods=["POST"])
 def telegram_webhook():
@@ -50,7 +46,8 @@ def telegram_webhook():
     asyncio.create_task(dp.process_update(update))
     return "OK"
 
-
 if __name__ == "__main__":
+    # Регистрация webhook
     asyncio.get_event_loop().run_until_complete(bot.set_webhook(WEBHOOK_URL))
+    # Flask запускает HTTP-сервер на порту, который видит Render
     app.run(host="0.0.0.0", port=PORT)
